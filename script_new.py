@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 from dotenv import load_dotenv
@@ -41,8 +42,7 @@ def setup_client():
     key = os.getenv("KC_API_KEY", "")
     secret = os.getenv("KC_SECRET", "")
     passphrase = os.getenv("KC_PASSPHRASE", "")
-    global safepal_doge_addr
-    safepal_doge_addr = os.getenv("SAFEPAL_DOGE_ADDR", "")
+    # global safepal_doge_addr
 
     # Set specific options, others will fall back to default values
     http_transport_option = (
@@ -297,12 +297,12 @@ def buy_and_transfer_token(token, chain, usdt_amount):
     
     try:
         # 1. check withdrawal fee to see if it's worth it
-        doge_quota = get_withdrawal_quota(token, chain)
-        doge_withdrawal_fee = round(float(doge_quota.withdraw_min_fee)*fetch_price(f'{token}-USDT'), 2)
-        logging.info(f"DOGE withdrawal fee: ${doge_withdrawal_fee}")
+        token_quota = get_withdrawal_quota(token, chain)
+        token_withdrawal_fee = round(float(token_quota.withdraw_min_fee)*fetch_price(f'{token}-USDT'), 2)
+        logging.info(f"Token withdrawal fee: ${token_withdrawal_fee}")
         # stop if withdrawal > $0.50
-        if doge_withdrawal_fee > 0.5:
-            logging.info("DOGE withdrawal > $0.50! Stopping...")
+        if token_withdrawal_fee > 0.5:
+            logging.info("Token withdrawal > $0.50! Stopping...")
             exit(1)
         
         # 2. check if there's enough EUR in main/trade and move from main to trade
@@ -339,7 +339,11 @@ def buy_and_transfer_token(token, chain, usdt_amount):
         time.sleep(2)
         
         # 7. withdraw token
-        w_id = withdraw_token(token='DOGE', chain='DOGE', to_address=safepal_doge_addr, amount = 'MAX')
+        safepal_token_addr = os.getenv(f"SAFEPAL_{token}_ADDR", "")
+        if safepal_token_addr == "":
+            logging.error("safepal token addr not found. Stopping...")
+            exit(1)
+        w_id = withdraw_token(token=token, chain=chain, to_address=safepal_token_addr, amount = 'MAX')
         if w_id is None:
             logging.error("Withdrawal id is None. Stopping...")
             exit(1)
@@ -362,6 +366,11 @@ def buy_and_transfer_token(token, chain, usdt_amount):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Buy and transfer a token from KuCoin")
+    parser.add_argument("--token", default="XRP", help="Token symbol to buy and withdraw (for example: XRP or DOGE)")
+    parser.add_argument("--chain", default=None, help="Withdrawal chain/network for the token (for example: XRP or doge)")
+    parser.add_argument("--usdt-amount", type=float, default=20, help="USDT amount to use for the trade")
+    args = parser.parse_args()
 
     client = setup_client()
     # Get the Restful Service
@@ -372,5 +381,6 @@ if __name__ == "__main__":
     transfer_api = kucoin_rest_service.get_account_service().get_transfer_api()
     withdraw_api = kucoin_rest_service.get_account_service().get_withdrawal_api()
     account_api = kucoin_rest_service.get_account_service().get_account_api()
-    
-    buy_and_transfer_token(token='DOGE', chain='doge', usdt_amount=50)
+
+    chain = args.chain or args.token.lower()
+    buy_and_transfer_token(token=args.token, chain=chain, usdt_amount=args.usdt_amount)
